@@ -68,13 +68,19 @@ jobs:
         run: |
           set -euo pipefail
           [ -f config.yaml ] || cp config.example.yaml config.yaml
-          # 러너 디스크가 넉넉하지 않으므로 업로드 후 로컬 사본은 지웁니다.
+          # 러너 디스크(약 14GB)에 맞춰 조정합니다.
+          #  - keep_local:   업로드 끝난 스냅샷의 로컬 사본을 남기지 않음
+          #  - stream_upload: 레포 아카이브를 만드는 즉시 올리고 지워서,
+          #                   디스크 최대 사용량이 레포 수와 무관하게 일정해짐
           python - <<'PY'
           import yaml, pathlib
           path = pathlib.Path("config.yaml")
           cfg = yaml.safe_load(path.read_text()) or {}
-          cfg.setdefault("output", {})["keep_local"] = False
+          output = cfg.setdefault("output", {})
+          output["keep_local"] = False
+          output["stream_upload"] = True
           path.write_text(yaml.safe_dump(cfg, allow_unicode=True, sort_keys=False))
+          print(yaml.safe_dump({"output": output}, allow_unicode=True, sort_keys=False))
           PY
 
       - name: Check credentials and target repositories

@@ -73,6 +73,8 @@ output:
   compression: gz
   snapshot_name: "%Y-%m-%dT%H-%M-%SZ"
   keep_local: true          # Actions 워크플로가 실행 시 자동으로 false 로 덮어씁니다
+  stream_upload: true       # 레포 아카이브를 만드는 즉시 Drive 로 올리고 로컬에서 지웁니다.
+                            # 러너 디스크 사용량이 레포 수와 무관하게 일정해집니다.
 
 storage:
   backend: rclone

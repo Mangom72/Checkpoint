@@ -30,14 +30,30 @@ def archive_dir(src: Path, out_dir: Path, name: str, compression: str = "gz") ->
     return archive
 
 
-def write_manifest(snapshot_dir: Path, manifest: dict[str, Any]) -> Path:
-    """Write manifest.json plus a SHA256SUMS file covering every snapshot file."""
-    checksums: list[str] = []
+def write_manifest(
+    snapshot_dir: Path,
+    manifest: dict[str, Any],
+    *,
+    uploaded: dict[str, tuple[str, int]] | None = None,
+) -> Path:
+    """Write manifest.json plus a SHA256SUMS file covering every snapshot file.
+
+    ``uploaded`` carries entries for files that were streamed to the remote and
+    deleted locally, as ``{relative_path: (sha256, bytes)}``; they are hashed at
+    upload time so the checksum file stays complete.
+    """
+    entries: dict[str, str] = dict((path, sha) for path, (sha, _size) in (uploaded or {}).items())
+    total = sum(size for _sha, size in (uploaded or {}).values())
+
     for path in sorted(snapshot_dir.rglob("*")):
         if path.is_file() and path.name not in ("SHA256SUMS", "manifest.json"):
-            checksums.append(f"{sha256_file(path)}  {path.relative_to(snapshot_dir)}")
-    (snapshot_dir / "SHA256SUMS").write_text("\n".join(checksums) + "\n", encoding="utf-8")
-    manifest["files"] = len(checksums)
-    manifest["bytes"] = dir_size(snapshot_dir)
-    manifest["size_human"] = human_size(manifest["bytes"])
+            relative = str(path.relative_to(snapshot_dir))
+            entries[relative] = sha256_file(path)
+            total += path.stat().st_size
+
+    lines = [f"{sha}  {relative}" for relative, sha in sorted(entries.items())]
+    (snapshot_dir / "SHA256SUMS").write_text("\n".join(lines) + "\n", encoding="utf-8")
+    manifest["files"] = len(lines)
+    manifest["bytes"] = total
+    manifest["size_human"] = human_size(total)
     return write_json(snapshot_dir / "manifest.json", manifest)

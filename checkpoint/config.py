@@ -77,6 +77,7 @@ DEFAULTS: dict[str, Any] = {
         "compression": "gz",
         "snapshot_name": "%Y-%m-%dT%H-%M-%SZ",
         "keep_local": True,
+        "stream_upload": False,
     },
     "storage": {
         "backend": "rclone",

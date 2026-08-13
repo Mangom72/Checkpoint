@@ -174,10 +174,31 @@ rclone size gdrive:Checkpoint/github-backups   # Drive 에서 실제 사용 중�
 용량이 빠듯하면 순서대로: cron 을 주 1회로 → `keep_daily: 0` → `keep_monthly` 축소 →
 `runtime.incremental: true`.
 
-> Drive 용량이 충분해지면 다음 병목은 **러너 디스크(약 14GB)** 입니다.
-> 스냅샷 전체가 업로드 전까지 러너에 올라가야 하므로, Drive 가 5TB 라도
-> *스냅샷 하나* 는 14GB 를 넘길 수 없습니다. 첫 실행 뒤 `manifest.json` 의
-> `size_human` 으로 여유를 확인하세요.
+### 러너 디스크와 `stream_upload`
+
+Drive 용량이 충분해지면 다음 병목은 **러너 디스크(약 14GB)** 입니다.
+증분 백업을 쓰지 않는 한 매 실행이 전체 백업이므로, 이 부담은 회차가 지나도 줄지 않습니다.
+
+`output.stream_upload: true` 를 켜면 레포 아카이브를 만드는 즉시 업로드하고 로컬에서 지웁니다.
+디스크 최대 사용량이 **전체 레포 합계** 에서 **동시에 처리 중인 레포** 로 바뀌어,
+레포가 몇 개든 일정해집니다. 레포당 6MB 짜리로 실측한 값:
+
+| 레포 수 | 스냅샷 총량 | `stream_upload: false` | `stream_upload: true` |
+| ---: | ---: | ---: | ---: |
+| 2 | 12MB | 23MB | 24MB |
+| 4 | 24MB | 34MB | 23MB |
+| 8 | 48MB | 57MB | 24MB |
+| 12 | 72MB | 83MB | 23MB |
+
+대략적인 최대치는 **`concurrency` × (가장 큰 레포 × 3)** 입니다
+(미러 + 번들 + tar 가 잠깐 공존). 디스크가 빠듯하면 `runtime.concurrency` 를 낮추는 것이
+가장 직접적인 대응입니다.
+
+원격에 남는 결과물은 켜든 끄든 **완전히 동일** 합니다 (테스트로 검증). 다만 스트리밍 중에는
+스냅샷이 조금씩 채워지므로, 실행이 중간에 죽으면 미완성 스냅샷이 남습니다.
+**`manifest.json` 이 있으면 완성된 스냅샷** 이라고 보면 됩니다.
+
+> Actions 워크플로는 이 옵션을 실행 시 자동으로 켭니다.
 
 `python -m checkpoint ...` 로도 동일하게 실행됩니다.
 

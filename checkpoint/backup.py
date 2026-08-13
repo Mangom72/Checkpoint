@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import threading
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
@@ -16,7 +17,7 @@ from .github_client import GitHubClient
 from .packager import archive_dir, write_manifest
 from .retention import select_expired
 from .storage import build_backend
-from .util import human_size, read_json, rmtree, safe_name, utc_stamp, write_json
+from .util import human_size, read_json, rmtree, safe_name, sha256_file, utc_stamp, write_json
 
 log = logging.getLogger(__name__)
 
@@ -41,6 +42,10 @@ class BackupRunner:
         self.work_root = Path(cfg.get("output.work_dir", "./work")).expanduser()
         self.state_path = Path(cfg.get("runtime.state_file", ".checkpoint-state.json")).expanduser()
         self.snapshot_fmt = cfg.get("output.snapshot_name", "%Y-%m-%dT%H-%M-%SZ")
+        # 러너 디스크가 좁을 때: 레포 아카이브를 만드는 즉시 올리고 지웁니다.
+        self.stream_upload = bool(cfg.get("output.stream_upload", False)) and self.backend.name != "none"
+        self._uploaded: dict[str, tuple[str, int]] = {}
+        self._uploaded_lock = threading.Lock()
 
     # -- state ----------------------------------------------------------
     def load_state(self) -> dict[str, Any]:
@@ -67,7 +72,7 @@ class BackupRunner:
             or previous.get("updated_at") != repo.get("updated_at")
         )
 
-    def backup_repo(self, repo: dict[str, Any], snapshot_dir: Path) -> dict[str, Any]:
+    def backup_repo(self, repo: dict[str, Any], snapshot_dir: Path, snapshot_name: str) -> dict[str, Any]:
         full_name = repo["full_name"]
         slug = safe_name(full_name)
         started = time.time()
@@ -123,9 +128,22 @@ class BackupRunner:
             )
             result["archive"] = archive.name
             result["bytes"] = archive.stat().st_size
+            if self.stream_upload:
+                self._stream(archive, snapshot_dir, snapshot_name, f"repos/{archive.name}")
+                result["streamed"] = True
 
         result["seconds"] = round(time.time() - started, 1)
         return result
+
+    def _stream(self, path: Path, snapshot_dir: Path, snapshot_name: str, relative: str) -> None:
+        """Upload one finished file, record its checksum, then free the local copy."""
+        digest = sha256_file(path)
+        size = path.stat().st_size
+        self.backend.upload(path, f"{snapshot_name}/{relative}")
+        with self._uploaded_lock:
+            self._uploaded[relative] = (digest, size)
+        path.unlink()
+        log.debug("streamed %s (%s) and freed local copy", relative, human_size(size))
 
     # -- main -----------------------------------------------------------
     def run(self) -> dict[str, Any]:
@@ -181,7 +199,10 @@ class BackupRunner:
         failures: list[dict[str, Any]] = []
         workers = max(1, int(self.cfg.get("runtime.concurrency", 4)))
         with ThreadPoolExecutor(max_workers=workers) as pool:
-            futures = {pool.submit(self.backup_repo, repo, snapshot_dir): repo for repo in pending}
+            futures = {
+                pool.submit(self.backup_repo, repo, snapshot_dir, snapshot_name): repo
+                for repo in pending
+            }
             for index, future in enumerate(as_completed(futures), start=1):
                 repo = futures[future]
                 try:
@@ -208,12 +229,16 @@ class BackupRunner:
             try:
                 account = export_account(self.client, snapshot_dir / "account", self.cfg)
                 if self.cfg.get("output.archive", True):
-                    archive_dir(
+                    account_archive = archive_dir(
                         snapshot_dir / "account",
                         snapshot_dir,
                         "account",
                         compression=self.cfg.get("output.compression", "gz"),
                     )
+                    if self.stream_upload:
+                        self._stream(
+                            account_archive, snapshot_dir, snapshot_name, account_archive.name
+                        )
             except Exception as exc:
                 log.error("account export failed: %s", exc)
                 failures.append({"repo": "(account)", "status": "failed", "error": str(exc)[:800]})
@@ -224,6 +249,7 @@ class BackupRunner:
             "snapshot": snapshot_name,
             "created_at": datetime.now(timezone.utc).isoformat(),
             "incremental": incremental,
+            "stream_upload": self.stream_upload,
             "config_source": str(self.cfg.source) if self.cfg.source else "(defaults)",
             "collect": self.cfg.collect,
             "repo_count": len(results),
@@ -232,11 +258,13 @@ class BackupRunner:
             "account": account,
             "repos": sorted(results, key=lambda r: r["repo"].lower()),
         }
-        write_manifest(snapshot_dir, manifest)
+        write_manifest(snapshot_dir, manifest, uploaded=self._uploaded)
         rmtree(self.work_root)
 
         remote_uri = None
         if self.backend.name != "none":
+            # streaming 모드에서는 manifest.json 과 SHA256SUMS 만 남아 있습니다.
+            # manifest.json 의 존재 여부가 곧 "완성된 스냅샷" 표시입니다.
             remote_uri = self.backend.upload(snapshot_dir, snapshot_name)
             log.info("uploaded snapshot to %s", remote_uri)
 

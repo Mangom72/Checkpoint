@@ -80,6 +80,9 @@ output:
   compression: gz         # gz | bz2 | xz | none
   snapshot_name: "%Y-%m-%dT%H-%M-%SZ"
   keep_local: true        # 업로드 후 로컬 사본을 남길지 (CI 에서는 false 권장)
+  stream_upload: false    # true 면 레포 아카이브를 만드는 즉시 업로드하고 로컬에서 삭제합니다.
+                          # 디스크 최대 사용량이 "전체 레포 합계"에서 "동시 처리 중인 레포"로
+                          # 줄어들어, 러너 디스크가 좁을 때 필수입니다 (CI 에서는 true 권장).
 
 storage:
   backend: rclone         # rclone | local | none

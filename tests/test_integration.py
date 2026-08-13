@@ -115,27 +115,38 @@ def routes_for(full_name: str, clone_url: str, server_url_holder: dict) -> dict:
     }
 
 
-@pytest.fixture()
-def snapshot(tmp_path, monkeypatch):
-    bare = make_bare_repo(tmp_path)
-    holder: dict = {}
-    routes = routes_for("me/app", str(bare), holder)
+def _configure(tmp_path, server, **output_overrides) -> Config:
+    cfg = Config.load(None)
+    cfg.data["github"].update({"api_url": server.url, "graphql_url": f"{server.url}/graphql"})
+    cfg.data["output"].update(
+        {"dir": str(tmp_path / "backups"), "work_dir": str(tmp_path / "work"), **output_overrides}
+    )
+    cfg.data["storage"] = {"backend": "local", "local": {"path": str(tmp_path / "remote")}}
+    cfg.data["runtime"].update(
+        {"state_file": str(tmp_path / "state.json"), "concurrency": 1, "log_level": "WARNING"}
+    )
+    cfg.data["retention"] = {"keep_last": 0, "keep_daily": 0, "keep_weekly": 0, "keep_monthly": 0}
+    return cfg
 
+
+def _run(tmp_path, monkeypatch, **output_overrides):
+    bare = make_bare_repo(tmp_path)
+    routes = routes_for("me/app", str(bare), {})
     with FakeGitHub(routes, page_size=50) as server:
         routes["/repos/me/app/releases"][0]["assets"][0]["url"] = f"{server.url}/asset/1"
         monkeypatch.setenv("GITHUB_TOKEN", "t0ken")
-        cfg = Config.load(None)
-        cfg.data["github"].update(
-            {"api_url": server.url, "graphql_url": f"{server.url}/graphql"}
-        )
-        cfg.data["output"].update({"dir": str(tmp_path / "backups"), "work_dir": str(tmp_path / "work")})
-        cfg.data["storage"] = {"backend": "local", "local": {"path": str(tmp_path / "remote")}}
-        cfg.data["runtime"].update(
-            {"state_file": str(tmp_path / "state.json"), "concurrency": 1, "log_level": "WARNING"}
-        )
-        cfg.data["retention"] = {"keep_last": 0, "keep_daily": 0, "keep_weekly": 0, "keep_monthly": 0}
-        manifest = BackupRunner(cfg).run()
-        yield tmp_path, manifest, cfg
+        cfg = _configure(tmp_path, server, **output_overrides)
+        yield tmp_path, BackupRunner(cfg).run(), cfg
+
+
+@pytest.fixture()
+def snapshot(tmp_path, monkeypatch):
+    yield from _run(tmp_path, monkeypatch)
+
+
+@pytest.fixture()
+def streamed(tmp_path, monkeypatch):
+    yield from _run(tmp_path, monkeypatch, stream_upload=True)
 
 
 def test_snapshot_is_created_and_uploaded(snapshot):
@@ -220,3 +231,65 @@ def test_second_run_with_incremental_skips_unchanged_repo(snapshot):
     statuses = {r["repo"]: r["status"] for r in second["repos"]}
     assert statuses["me/app"] == "unchanged"
     assert second["repos"][0]["in_snapshot"] == manifest["snapshot"]
+
+
+def test_stream_upload_frees_local_disk_as_it_goes(streamed):
+    """레포 아카이브가 만들어지는 즉시 업로드되고 로컬에서 사라져야 합니다."""
+    root, manifest, _ = streamed
+    local = root / "backups" / manifest["snapshot"]
+    remote = root / "remote" / manifest["snapshot"]
+
+    assert manifest["stream_upload"] is True
+    assert manifest["failed"] == 0
+
+    # 로컬에는 manifest 와 체크섬만 남습니다.
+    leftovers = sorted(p.name for p in local.rglob("*") if p.is_file())
+    assert leftovers == ["SHA256SUMS", "manifest.json"], leftovers
+
+    # 원격에는 전부 올라가 있어야 합니다.
+    assert (remote / "repos" / "me__app.tar.gz").is_file()
+    assert (remote / "account.tar.gz").is_file()
+    assert (remote / "manifest.json").is_file()
+
+
+def test_stream_upload_still_produces_complete_checksums(streamed):
+    root, manifest, _ = streamed
+    local = root / "backups" / manifest["snapshot"]
+    remote = root / "remote" / manifest["snapshot"]
+
+    sums = dict(
+        reversed(line.split("  ", 1))
+        for line in (local / "SHA256SUMS").read_text().splitlines()
+        if line
+    )
+    assert "repos/me__app.tar.gz" in sums
+    assert "account.tar.gz" in sums
+
+    # 스트리밍으로 지워진 파일도 원격 실물과 해시가 일치해야 합니다.
+    from checkpoint.util import sha256_file
+
+    for relative, expected in sums.items():
+        assert sha256_file(remote / relative) == expected, relative
+
+    assert manifest["files"] == len(sums)
+    assert manifest["bytes"] == sum((remote / r).stat().st_size for r in sums)
+
+
+def test_streamed_and_normal_snapshots_have_identical_layout(tmp_path, monkeypatch, snapshot):
+    """스트리밍 여부와 무관하게 원격에 남는 구조는 같아야 합니다."""
+    root, manifest, _ = snapshot
+    normal = sorted(
+        str(p.relative_to(root / "remote" / manifest["snapshot"]))
+        for p in (root / "remote" / manifest["snapshot"]).rglob("*")
+        if p.is_file()
+    )
+
+    other = tmp_path / "streamed-run"
+    other.mkdir()
+    _, streamed_manifest, _ = next(_run(other, monkeypatch, stream_upload=True))
+    streamed_files = sorted(
+        str(p.relative_to(other / "remote" / streamed_manifest["snapshot"]))
+        for p in (other / "remote" / streamed_manifest["snapshot"]).rglob("*")
+        if p.is_file()
+    )
+    assert streamed_files == normal
