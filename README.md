@@ -143,8 +143,12 @@ Google 계정의 무료 15GB 는 Gmail·Drive·Photos 가 함께 씁니다.
 Checkpoint 가 쓰는 양은 **스냅샷 1개 크기 × 보존되는 스냅샷 수** 입니다
 (증분이 꺼져 있으면 스냅샷 하나하나가 전체 사본입니다).
 
-기본 설정(매일 실행 + `keep_last 7 / daily 7 / weekly 4 / monthly 6`)의 정상 상태는
-**스냅샷 13개** 입니다. 주 1회 + `keep_last 4 / weekly 4 / monthly 6` 이면 **8개** 입니다.
+`config.example.yaml` 의 기본값(매일 실행 + `keep_last 7 / daily 7 / weekly 4 / monthly 6`)은
+정상 상태에서 **스냅샷 13~14개** 를 유지합니다. 주 1회 + `keep_last 4 / weekly 4 / monthly 6` 이면 **8개** 입니다.
+
+용량이 넉넉하다면(Google One 등) 반대로 늘리는 편이 낫습니다.
+이 레포의 [`config.yaml`](config.yaml) 은 `14 / 30 / 12 / 24` 로 **59개(약 2년치)** 를 보존하고,
+기본적으로 꺼져 있는 수집 항목까지 전부 켜둔 설정입니다.
 
 | 레포 총합 (압축 후) | 기본 설정 (13개) | 주 1회 설정 (8개) |
 | --- | --- | --- |
@@ -169,6 +173,11 @@ rclone size gdrive:Checkpoint/github-backups   # Drive 에서 실제 사용 중�
 현재 Drive 사용량은 <https://drive.google.com/settings/storage> 에서 확인합니다.
 용량이 빠듯하면 순서대로: cron 을 주 1회로 → `keep_daily: 0` → `keep_monthly` 축소 →
 `runtime.incremental: true`.
+
+> Drive 용량이 충분해지면 다음 병목은 **러너 디스크(약 14GB)** 입니다.
+> 스냅샷 전체가 업로드 전까지 러너에 올라가야 하므로, Drive 가 5TB 라도
+> *스냅샷 하나* 는 14GB 를 넘길 수 없습니다. 첫 실행 뒤 `manifest.json` 의
+> `size_human` 으로 여유를 확인하세요.
 
 `python -m checkpoint ...` 로도 동일하게 실행됩니다.
 

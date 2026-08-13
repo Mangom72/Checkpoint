@@ -1,0 +1,101 @@
+# Mangom72 실사용 설정.
+# Drive 5TB 기준으로, 용량을 아끼는 대신 "가능한 한 다 가져오고 오래 보관"에 맞춰져 있습니다.
+# 전체 옵션 설명은 config.example.yaml 참고.
+
+github:
+  token_env: GITHUB_TOKEN
+  include_owned: true
+  include_collaborator: false
+  include_orgs: []
+  include: []            # 비워두면 내 레포 전부 (새로 만든 레포도 자동 포함)
+  exclude: []
+  include_forks: false   # 포크도 남기려면 true (원본이 사라져도 복원 가능)
+  include_archived: true
+  include_private: true
+
+collect:
+  # ---- Git ----
+  git: true
+  git_pull_refs: true    # refs/pull/* 까지. 삭제된 PR 브랜치와 force-push 이전 이력까지 남습니다.
+                         # 용량이 늘어나는 유일한 항목이니 러너 디스크가 빠듯해지면 여기부터 끄세요.
+  git_lfs: true          # GitHub 호스티드 러너에는 git-lfs 가 기본 설치돼 있습니다.
+  wiki: true
+
+  # ---- 이슈 / PR ----
+  repo_meta: true
+  issues: true
+  issue_comments: true
+  issue_events: true
+  pulls: true
+  pull_reviews: true
+  pull_review_comments: true
+  pull_commits: true
+
+  # ---- 릴리스 ----
+  releases: true
+  release_assets: true
+  release_asset_max_mb: 0   # 0 = 크기 제한 없음
+
+  # ---- 그 외 ----
+  discussions: true
+  labels: true
+  milestones: true
+  tags: true
+  branches: true
+  commit_comments: true
+  contributors: true
+  collaborators: true
+
+  # 용량이 넉넉하므로 기본 꺼짐 항목도 켭니다.
+  stargazers: true
+  watchers: true
+  forks: true
+  webhooks: true            # 내 소유 레포면 classic PAT 의 repo 스코프로 읽힙니다
+  workflows: true
+  workflow_runs: true       # CI 이력. 아래 limit 이 레포당 상한입니다.
+  workflow_runs_limit: 500
+  deployments: true
+  environments: true
+  projects_v2: true         # PAT 에 read:project 필요. 없으면 warnings 에만 남고 넘어갑니다.
+  traffic: true             # GitHub 가 14일치만 보관 -> 매일 백업하면 영구 시계열이 됩니다.
+                            # 해당 레포에 push 권한이 필요합니다.
+
+  # ---- 계정 ----
+  account_profile: true
+  account_gists: true
+  account_starred: true
+  account_following: true
+
+output:
+  dir: ./backups
+  work_dir: ./work
+  archive: true
+  compression: gz
+  snapshot_name: "%Y-%m-%dT%H-%M-%SZ"
+  keep_local: true          # Actions 워크플로가 실행 시 자동으로 false 로 덮어씁니다
+
+storage:
+  backend: rclone
+  rclone:
+    binary: rclone
+    remote: "gdrive:"
+    path: "Checkpoint/github-backups"
+    extra_args: ["--transfers=4", "--checkers=8", "--drive-chunk-size=64M"]
+
+# 매일 실행 기준으로 스냅샷 59개(약 2년치)가 상시 보존됩니다.
+retention:
+  keep_last: 14
+  keep_daily: 30
+  keep_weekly: 12
+  keep_monthly: 24
+  prune_remote: true
+  prune_local: true
+
+runtime:
+  concurrency: 4
+  request_timeout: 60
+  max_retries: 6
+  incremental: false        # 스냅샷 하나만으로 완전 복원되도록 유지
+  state_file: .checkpoint-state.json
+  log_level: INFO
+  fail_fast: false
