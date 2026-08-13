@@ -1,0 +1,25 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "checkpoint-github-backup"
+version = "1.0.0"
+description = "Periodic, complete backups of GitHub repositories (git history, issues, PRs, releases) to Google Drive"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+dependencies = ["requests>=2.31,<3", "PyYAML>=6.0,<7"]
+
+[project.optional-dependencies]
+dev = ["pytest>=8"]
+
+[project.scripts]
+checkpoint = "checkpoint.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["checkpoint*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]

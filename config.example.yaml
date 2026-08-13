@@ -1,0 +1,115 @@
+# Checkpoint - GitHub -> Google Drive 백업 설정
+# 이 파일을 config.yaml 로 복사해서 쓰세요.  ${VAR} / ${VAR:-기본값} 형태로
+# 환경변수를 넣을 수 있습니다.  모든 항목은 생략 가능하며, 생략하면 기본값이 쓰입니다.
+
+github:
+  # 토큰을 담고 있는 환경변수 이름 (토큰 값 자체를 파일에 적지 마세요)
+  token_env: GITHUB_TOKEN
+
+  # ---- 어떤 레포를 백업할지 ----
+  include_owned: true          # 내가 소유한 레포 전부
+  include_collaborator: false  # 내가 콜라보레이터로 참여 중인 레포
+  include_orgs: []             # 예: ["my-org", "another-org"]
+
+  # include 를 비워두면 위 조건에 맞는 레포 전부가 대상입니다.
+  # 값을 넣으면 그 패턴에 맞는 것만 백업합니다 (glob 사용 가능).
+  # "owner/repo" 처럼 정확한 이름을 적으면 목록에 안 잡히는 레포도 강제로 가져옵니다.
+  include: []                  # 예: ["mangom72/*", "some-org/important-*"]
+  exclude: []                  # 예: ["mangom72/scratch-*", "*/fork-of-*"]
+
+  include_forks: false
+  include_archived: true
+  include_private: true
+
+# ---- 무엇을 가져올지 ----
+collect:
+  # Git 히스토리
+  git: true
+  git_pull_refs: false   # refs/pull/* 까지 (PR 브랜치 전부, 용량 커짐)
+  git_lfs: false         # git-lfs 설치 필요
+  wiki: true
+
+  # 이슈 / PR
+  repo_meta: true
+  issues: true
+  issue_comments: true
+  issue_events: true
+  pulls: true
+  pull_reviews: true         # PR 1건당 API 1회 (PR 많으면 느려짐)
+  pull_review_comments: true
+  pull_commits: true         # PR 1건당 API 1회
+
+  # 릴리스
+  releases: true
+  release_assets: true
+  release_asset_max_mb: 200  # 이보다 큰 첨부파일은 건너뜀 (0 = 제한 없음)
+
+  # 그 외
+  discussions: true
+  labels: true
+  milestones: true
+  tags: true
+  branches: true
+  commit_comments: true
+  contributors: true
+  collaborators: true
+
+  # 기본 꺼짐 - 용량이 크거나 별도 권한이 필요합니다
+  stargazers: false
+  watchers: false
+  forks: false
+  webhooks: false        # admin 권한 필요
+  workflows: true
+  workflow_runs: false   # 실행 이력, 매우 많을 수 있음
+  workflow_runs_limit: 200
+  deployments: false
+  environments: false
+  projects_v2: false     # GraphQL, 토큰에 project 권한 필요
+  traffic: false         # push 권한 필요, 최근 14일치만 제공됨
+
+  # 계정 단위 데이터
+  account_profile: true
+  account_gists: true    # gist 본문까지 내려받음
+  account_starred: true
+  account_following: true
+
+output:
+  dir: ./backups          # 스냅샷이 만들어지는 로컬 경로
+  work_dir: ./work        # 작업용 임시 경로 (자동 정리)
+  archive: true           # 레포별 tar.gz 로 묶기
+  compression: gz         # gz | bz2 | xz | none
+  snapshot_name: "%Y-%m-%dT%H-%M-%SZ"
+  keep_local: true        # 업로드 후 로컬 사본을 남길지 (CI 에서는 false 권장)
+
+storage:
+  backend: rclone         # rclone | local | none
+  rclone:
+    binary: rclone
+    remote: "gdrive:"     # rclone 에 설정한 remote 이름
+    path: "Checkpoint/github-backups"   # Drive 안의 경로
+    extra_args: ["--transfers=4", "--checkers=8", "--drive-chunk-size=64M"]
+  local:
+    path: ./remote-backups
+
+# 오래된 스냅샷 정리 규칙 (합집합으로 보존, 규칙을 전부 0 으로 두면 정리 안 함)
+retention:
+  keep_last: 7      # 최근 스냅샷 N개
+  keep_daily: 7     # 최근 N일치 (하루 중 마지막 것)
+  keep_weekly: 4    # 최근 N주치
+  keep_monthly: 6   # 최근 N개월치
+  prune_remote: true
+  prune_local: true
+
+runtime:
+  concurrency: 4          # 동시에 처리할 레포 수
+  request_timeout: 60
+  max_retries: 6
+  incremental: false      # true 로 두면 안 바뀐 레포는 건너뜀 (아래 주의사항 참고)
+  state_file: .checkpoint-state.json
+  log_level: INFO
+  fail_fast: false
+
+# 주의: incremental: true 는 마지막 백업 이후 push/update 가 없는 레포를 건너뜁니다.
+# 빠르지만, 그 스냅샷 하나만으로는 복원이 안 되고 manifest.json 의
+# in_snapshot 이 가리키는 이전 스냅샷이 함께 있어야 합니다.
+# 스냅샷 하나로 전체 복원이 가능하길 원하면 false 로 두세요.

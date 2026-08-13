@@ -1,0 +1,99 @@
+name: Backup GitHub -> Google Drive
+
+on:
+  schedule:
+    # 매일 18:00 UTC = 한국시간 새벽 03:00
+    - cron: "0 18 * * *"
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "실제 백업 없이 대상만 확인"
+        type: boolean
+        default: false
+      full:
+        description: "incremental 무시하고 전부 다시 백업"
+        type: boolean
+        default: false
+      repo:
+        description: "특정 레포만 (owner/repo, 비우면 전체)"
+        type: string
+        default: ""
+
+# 이전 실행이 아직 돌고 있으면 겹치지 않게 기다립니다.
+concurrency:
+  group: checkpoint-backup
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  backup:
+    runs-on: ubuntu-latest
+    timeout-minutes: 350
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Install rclone
+        run: |
+          set -euo pipefail
+          curl -fsSL https://downloads.rclone.org/rclone-current-linux-amd64.zip -o /tmp/rclone.zip
+          unzip -q /tmp/rclone.zip -d /tmp/rclone
+          sudo install -m 755 /tmp/rclone/rclone-*/rclone /usr/local/bin/rclone
+          rclone version
+
+      - name: Write rclone config
+        env:
+          RCLONE_CONFIG_BASE64: ${{ secrets.RCLONE_CONFIG_BASE64 }}
+        run: |
+          set -euo pipefail
+          if [ -z "${RCLONE_CONFIG_BASE64}" ]; then
+            echo "::error::secret RCLONE_CONFIG_BASE64 가 없습니다. docs/google-drive.md 를 보세요."
+            exit 1
+          fi
+          mkdir -p ~/.config/rclone
+          printf '%s' "${RCLONE_CONFIG_BASE64}" | base64 -d > ~/.config/rclone/rclone.conf
+          chmod 600 ~/.config/rclone/rclone.conf
+          rclone listremotes
+
+      - name: Prepare config
+        run: |
+          set -euo pipefail
+          [ -f config.yaml ] || cp config.example.yaml config.yaml
+          # 러너 디스크가 넉넉하지 않으므로 업로드 후 로컬 사본은 지웁니다.
+          python - <<'PY'
+          import yaml, pathlib
+          path = pathlib.Path("config.yaml")
+          cfg = yaml.safe_load(path.read_text()) or {}
+          cfg.setdefault("output", {})["keep_local"] = False
+          path.write_text(yaml.safe_dump(cfg, allow_unicode=True, sort_keys=False))
+          PY
+
+      - name: Check credentials and target repositories
+        env:
+          GITHUB_TOKEN: ${{ secrets.BACKUP_GITHUB_TOKEN }}
+        run: python -m checkpoint --config config.yaml check
+
+      - name: Run backup
+        env:
+          GITHUB_TOKEN: ${{ secrets.BACKUP_GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          args=()
+          # 스케줄 실행에서는 inputs.* 가 비어 있으므로 기본값으로 취급됩니다.
+          if [ "${{ inputs.dry_run }}" = "true" ]; then args+=(--dry-run); fi
+          if [ "${{ inputs.full }}" = "true" ]; then args+=(--full); fi
+          if [ -n "${{ inputs.repo }}" ]; then args+=(--repo "${{ inputs.repo }}"); fi
+          python -m checkpoint --config config.yaml run ${args[@]+"${args[@]}"}
+
+      - name: Report free space
+        if: always()
+        run: df -h / | tail -1

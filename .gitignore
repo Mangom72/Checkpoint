@@ -1,0 +1,11 @@
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.env
+backups/
+work/
+*.log
+.checkpoint-state.json
+.pytest_cache/
+.rclone.conf
