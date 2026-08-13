@@ -25,6 +25,10 @@ class StorageBackend(ABC):
         """Fetch a single remote file. Returns False when it does not exist."""
         return False
 
+    def download_dir(self, remote_subpath: str, local_path: Path) -> bool:
+        """Fetch a remote directory tree. Returns False when it does not exist."""
+        return False
+
     def check(self) -> None:
         """Raise if the backend is not usable (missing binary, bad credentials...)."""
 

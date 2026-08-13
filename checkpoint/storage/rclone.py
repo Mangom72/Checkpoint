@@ -70,6 +70,12 @@ class RcloneBackend(StorageBackend):
         proc = self._run(["copyto", target, str(local_path)], check=False)
         return proc.returncode == 0 and local_path.exists()
 
+    def download_dir(self, remote_subpath: str, local_path: Path) -> bool:
+        target = self._target(remote_subpath)
+        local_path.mkdir(parents=True, exist_ok=True)
+        proc = self._run(["copy", target, str(local_path)], check=False)
+        return proc.returncode == 0 and any(local_path.rglob("*"))
+
     def delete(self, remote_subpath: str) -> None:
         target = self._target(remote_subpath)
         log.info("rclone purge %s", target)

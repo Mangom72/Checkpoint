@@ -74,7 +74,12 @@ collect:
   account_following: true
 
 output:
-  dir: ./backups          # 스냅샷이 만들어지는 로컬 경로
+  # mirror   = 사본 하나를 계속 갱신 (용량 = 레포 총합 x 1).
+  #            GitHub 에서 사라진 레포/이슈/릴리스는 미러에 남고 표시됩니다.
+  # snapshot = 시점별 사본을 여러 개 보관 (용량 = 레포 총합 x 보존 개수).
+  #            "그때 그 상태" 로 되돌려야 할 때 쓰세요.
+  mode: snapshot
+  dir: ./backups          # 결과물이 만들어지는 로컬 경로
   work_dir: ./work        # 작업용 임시 경로 (자동 정리)
   archive: true           # 레포별 tar.gz 로 묶기
   compression: gz         # gz | bz2 | xz | none

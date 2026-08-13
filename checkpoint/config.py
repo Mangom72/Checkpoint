@@ -71,6 +71,7 @@ DEFAULTS: dict[str, Any] = {
         "account_following": True,
     },
     "output": {
+        "mode": "snapshot",
         "dir": "./backups",
         "work_dir": "./work",
         "archive": True,
@@ -196,6 +197,9 @@ class Config:
         backend = self.get("storage.backend")
         if backend not in ("rclone", "local", "none"):
             raise ConfigError(f"storage.backend must be rclone|local|none, got {backend!r}")
+        mode = self.get("output.mode")
+        if mode not in ("snapshot", "mirror"):
+            raise ConfigError(f"output.mode must be snapshot|mirror, got {mode!r}")
         compression = self.get("output.compression")
         if compression not in ("gz", "bz2", "xz", "none"):
             raise ConfigError(f"output.compression must be gz|bz2|xz|none, got {compression!r}")

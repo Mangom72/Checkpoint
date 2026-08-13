@@ -47,6 +47,13 @@ class LocalBackend(StorageBackend):
         shutil.copy2(source, local_path)
         return True
 
+    def download_dir(self, remote_subpath: str, local_path: Path) -> bool:
+        source = self._target(remote_subpath)
+        if not source.is_dir():
+            return False
+        shutil.copytree(source, local_path, dirs_exist_ok=True)
+        return True
+
     def delete(self, remote_subpath: str) -> None:
         target = self._target(remote_subpath)
         if target.is_dir():

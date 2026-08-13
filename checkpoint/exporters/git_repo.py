@@ -44,6 +44,7 @@ def export_git(
     pull_refs: bool = False,
     lfs: bool = False,
     timeout: int = 3600,
+    keep_mirror: bool = False,
 ) -> dict[str, Any]:
     """Mirror ``clone_url`` and write a restorable bundle into ``dest``.
 
@@ -91,7 +92,8 @@ def export_git(
     if not refs:
         summary["empty"] = True
         log.info("repository has no refs (empty); skipping bundle")
-        rmtree(mirror)
+        if not keep_mirror:
+            rmtree(mirror)
         return summary
 
     if lfs:
@@ -125,15 +127,40 @@ def export_git(
     except CommandError as exc:
         if "empty bundle" in str(exc).lower():
             summary["empty"] = True
-            rmtree(mirror)
+            if not keep_mirror:
+                rmtree(mirror)
             return summary
         raise
 
     summary["bundle"] = bundle.name
     summary["bundle_bytes"] = bundle.stat().st_size
     log.info("git bundle %s (%s refs)", human_size(summary["bundle_bytes"]), len(refs))
-    rmtree(mirror)
+    if keep_mirror:
+        summary["mirror_path"] = str(mirror)
+    else:
+        rmtree(mirror)
     return summary
+
+
+def reachable_predicate(mirror: Path):
+    """Build a test for "is this old ref tip still reachable from some ref?".
+
+    Object *existence* is the wrong question: a local clone hardlinks the object
+    store, so commits orphaned by a force-push are still on disk. Only
+    reachability from a current ref says whether the history survived.
+    """
+    listed = run(["git", "rev-list", "--all"], cwd=mirror, check=False)
+    reachable = set((listed.stdout or "").split())
+
+    def still_reachable(sha: str) -> bool:
+        peeled = run(
+            ["git", "rev-parse", "--verify", "--quiet", f"{sha}^{{commit}}"],
+            cwd=mirror,
+            check=False,
+        ).stdout.strip()
+        return bool(peeled) and peeled in reachable
+
+    return still_reachable
 
 
 def export_wiki(

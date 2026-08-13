@@ -9,15 +9,19 @@ Git 히스토리만이 아니라 GitHub 안에만 존재하는 것들 — 이슈
 ```
 GitHub API + git clone --mirror
         │
-        ▼  레포별로 만들자마자 업로드
-  Google Drive: Checkpoint/github-backups/2026-08-13T18-00-00Z/
-        ├── manifest.json      무엇이 언제 백업됐는지 + 경고
-        ├── SHA256SUMS
-        ├── account.tar.gz
-        └── repos/*.tar.gz
+        ▼
+  Google Drive: Checkpoint/github-backups/mirror/
+        ├── manifest.json          현재 상태 + 사라진 것들의 기록
+        ├── account/
+        └── repos/<owner>__<name>/
+            ├── git/repo.bundle    전체 히스토리
+            ├── git/history/       force-push 로 날아간 히스토리
+            └── api/*.json         이슈·PR·릴리스…
 ```
 
-만들어진 스냅샷은 **자체 완결형** 입니다. 이 도구가 없어져도 `tar` 와 `git` 만으로 복원됩니다.
+**백업에서 지워지는 것은 없습니다.** GitHub 에서 레포가 사라져도, 이슈가 삭제돼도,
+강제 푸시로 히스토리가 날아가도 미러에는 남고 사라진 시점이 기록됩니다.
+복원에 특별한 도구가 필요 없습니다 — `git` 과 `jq` 면 됩니다.
 
 ---
 
@@ -34,6 +38,41 @@ GitHub API + git clone --mirror
 | **메타데이터** | 라벨, 마일스톤, 태그, 브랜치, 기여자, 콜라보레이터, 언어, 토픽, README, 워크플로 정의 |
 | **계정** | 프로필, gist(본문 포함), 스타, 팔로잉/팔로워, 조직, 공개키 |
 | **선택** | stargazers, forks, 웹훅, 워크플로 실행 이력, 배포, Projects v2, 트래픽 통계 |
+
+## 두 가지 모드
+
+| | `mirror` (기본) | `snapshot` |
+| --- | --- | --- |
+| 저장 방식 | 사본 하나를 계속 갱신 | 실행할 때마다 시점별 사본 |
+| 용량 | **레포 총합 × 1** | 레포 총합 × 보존 개수 |
+| GitHub 에서 삭제된 것 | **미러에 남고 표시됨** | 그 시점 이후 스냅샷에는 없음 |
+| "3일 전 상태" 로 되돌리기 | 불가 (현재 상태 + 삭제 이력만) | 가능 |
+| 오래된 것 정리 | 하지 않음 | 보존 규칙대로 삭제 |
+
+같은 데이터를 10일간 매일 백업했을 때 (레포 5MB, 변경 없음):
+
+| | 10일 후 원격 총량 |
+| --- | ---: |
+| `snapshot` | 50.1 MB |
+| `mirror` | **5.0 MB** |
+
+`mirror` 는 중복 제거가 아니라 **덮어쓰기** 로 이걸 달성합니다. 대신 잃는 것은
+"특정 시점으로 되돌리기" 뿐입니다. 삭제·유실에 대한 보호는 오히려 더 강합니다.
+
+바꾸려면 `config.yaml` 의 `output.mode` 를 `snapshot` 으로 두면 됩니다.
+
+### mirror 모드가 지키는 것
+
+| GitHub 에서 일어난 일 | 미러에서 |
+| --- | --- |
+| 레포 삭제 / 계정 정지 | 디렉터리 그대로 유지, manifest 에 `status: vanished` |
+| 이슈·PR·릴리스·라벨 삭제 | JSON 에 남고 `_vanished_at` 표시 |
+| 삭제됐다가 복구됨 | `_vanished_at` 제거, `_reappeared_at` 기록 |
+| force-push 로 히스토리 재작성 | 직전 번들을 `git/history/<시각>.bundle` 로 보존 |
+| 릴리스 첨부파일 삭제 | 파일 그대로 유지 |
+| 수집 항목을 껐을 때 | 이전에 받아둔 파일 유지 |
+
+업로드는 rclone `copy` 라서 **원격에서 무언가를 지우는 동작 자체가 없습니다.**
 
 ## 설정 (자동 실행 기준)
 
@@ -147,7 +186,8 @@ default branch 에 보호 규칙이 있다면 `github-actions[bot]` 의 푸시�
 
 ## 얼마나 자주 받을까
 
-용량이 아니라 **잃어도 되는 시간** 으로 정하는 문제입니다.
+mirror 모드에서는 주기를 올려도 **용량이 늘지 않습니다.** 순수하게
+**잃어도 되는 시간** 으로 정하면 됩니다.
 
 Git 히스토리는 보통 로컬 클론에도 있어서 손실이 제한적이지만,
 **이슈·PR 코멘트·Discussions 는 GitHub 에만 있습니다.** 주 1회면 최대 7일치 대화가 사라집니다.
@@ -156,43 +196,22 @@ Git 히스토리는 보통 로컬 클론에도 있어서 손실이 제한적이�
 - **매일** — 최대 1일치 손실. private 이면 분 예산을 먼저 확인하세요.
 - **주 1회** — 최대 7일치 손실. 분·시간 여유가 넉넉해집니다.
 
-Drive 용량은 이 선택에 사실상 영향을 주지 않습니다 (아래 표 참고).
+자주 돌릴수록 삭제를 더 빨리 포착한다는 장점도 있습니다. 백업 사이에 만들어졌다가
+지워진 이슈는 미러가 한 번도 본 적이 없으므로 남길 수 없습니다.
 
 ## 용량과 디스크
 
 ### Drive
 
-**스냅샷 1개 크기 × 보존되는 스냅샷 수** 입니다.
+**mirror 모드에서는 레포 총합과 거의 같습니다.** 며칠을 돌리든 늘지 않습니다.
+늘어나는 것은 실제로 새로 생긴 데이터, 그리고 GitHub 에서 사라져 보존된 것들뿐입니다.
 
-중복 제거를 하지 않기 때문에, 어제와 오늘 사이에 아무것도 바뀌지 않았어도
-**오늘 스냅샷은 다시 전체 사본** 입니다. 스냅샷을 자체 완결형으로 유지하기 위해
-의도적으로 택한 구조입니다 (restic·borg 처럼 블록 단위로 중복을 걷어내지 않습니다).
+snapshot 모드로 바꾸면 **스냅샷 1개 크기 × 보존 개수** 가 됩니다. 중복 제거를 하지 않으므로
+아무것도 바뀌지 않아도 매번 전체 사본이 쌓입니다. `config.yaml` 의 보존 규칙으로 매일
+실행하면 2년 뒤 59~60개에서 평평해지므로 상한은 **레포 총합 × 60** 입니다.
 
-무한정 늘지는 않고 보존 규칙에서 멈춥니다. `config.yaml` 의 규칙
-(`keep_last 14 / daily 30 / weekly 12 / monthly 24`)으로 매일 실행하면
-레포 총합 1GB 기준:
-
-| 경과 | 보존 스냅샷 | 차지하는 용량 |
-| ---: | ---: | ---: |
-| 7일 | 7개 | 7GB |
-| 30일 | 30개 | 30GB |
-| 90일 | 39개 | 39GB |
-| 1년 | 48개 | 48GB |
-| 2년 이후 | **59~60개** | **약 60GB (여기서 평평해짐)** |
-
-즉 상한은 **레포 총합 × 60** 입니다. 500MB 면 30GB, 5GB 면 295GB.
-
-주기를 주 1회로 낮춰도 보존 개수는 크게 줄지 않습니다 (규칙이 개수 기준이라
-같은 개수를 더 긴 기간에 걸쳐 유지합니다). 용량을 실제로 줄이는 건 보존 규칙 자체이거나
-`runtime.incremental: true` 입니다 — 후자는 바뀌지 않은 레포를 아예 다시 담지 않아
-전체 사본이 반복되는 구조를 없앱니다.
-
-무료 15GB 계정이라면 `config.example.yaml` 의 기본값(13~14개)을 쓰거나 주 1회로 낮추세요.
-빠듯할 때 순서대로: cron 을 주 1회로 → `keep_daily: 0` → `keep_monthly` 축소 →
-`runtime.incremental: true`.
-
-미리 재보려면 `python -m checkpoint list`, 한 번 돌린 뒤라면
-`jq -r '.size_human' backups/*/manifest.json` 또는 `rclone size gdrive:Checkpoint/github-backups`.
+실제 사용량은 `rclone size gdrive:Checkpoint/github-backups`,
+백업 대상 총량은 `python -m checkpoint list` 로 미리 잴 수 있습니다.
 
 ### 러너 디스크
 
@@ -282,6 +301,9 @@ runtime:
 **보존 규칙** 은 restic/borg 와 같은 방식입니다. 타임스탬프 형식이 아닌 이름의 파일·폴더는
 절대 지우지 않습니다.
 
+**모드** 는 `output.mode` 로 정합니다. 위의 [두 가지 모드](#두-가지-모드) 참고.
+`retention`·`archive`·`compression`·`stream_upload` 은 snapshot 모드에서만 쓰입니다.
+
 **증분 백업** 은 기본 꺼져 있습니다. 켜면 마지막 백업 이후 바뀌지 않은 레포를 건너뛰어
 빨라지고 용량도 크게 줄지만, 그 스냅샷 하나만으로는 복원할 수 없고 `manifest.json` 의
 `in_snapshot` 이 가리키는 이전 스냅샷이 함께 남아 있어야 합니다.
@@ -290,13 +312,21 @@ runtime:
 
 ## 복원
 
-스냅샷은 특별한 도구 없이 열립니다.
+미러는 Drive 에서 그대로 내려받아 쓰면 됩니다.
 
 ```bash
-sha256sum -c SHA256SUMS
-tar xzf repos/mangom72__Checkpoint.tar.gz
-git clone mangom72__Checkpoint/git/repo.bundle Checkpoint
+rclone copy gdrive:Checkpoint/github-backups/mirror/repos/mangom72__Checkpoint ./restored
+git clone ./restored/git/repo.bundle Checkpoint
+
+# force-push 로 날아갔던 히스토리가 있다면
+git clone ./restored/git/history/2026-08-13T12-00-00.bundle old-history
+
+# 사라진 이슈만 보기
+jq -r '.[] | select(._vanished_at) | "#\(.number) \(.title) (사라짐: \(._vanished_at))"' \
+  ./restored/api/issues.json
 ```
+
+snapshot 모드라면 `tar xzf repos/<slug>.tar.gz` 로 먼저 풀어야 합니다.
 
 이슈·PR 은 `api/*.json` 에 GitHub API 원본 그대로 들어 있습니다
 (`_comments`, `_events`, `_reviews`, `_review_comments`, `_commits` 필드가 추가됩니다).

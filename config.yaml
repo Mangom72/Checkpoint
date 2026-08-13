@@ -67,8 +67,14 @@ collect:
   account_following: true
 
 output:
+  # mirror = 사본 하나를 계속 갱신. 같은 데이터를 여러 벌 만들지 않고,
+  #          GitHub 에서 사라진 것은 미러에 그대로 남습니다.
+  # snapshot = 시점별 사본을 여러 개 (보존 규칙으로 정리). 용량이 배수로 늘어납니다.
+  mode: mirror
   dir: ./backups
   work_dir: ./work
+
+  # 아래 네 개는 snapshot 모드에서만 쓰입니다.
   archive: true
   compression: gz
   snapshot_name: "%Y-%m-%dT%H-%M-%SZ"
@@ -84,7 +90,7 @@ storage:
     path: "Checkpoint/github-backups"
     extra_args: ["--transfers=4", "--checkers=8", "--drive-chunk-size=64M"]
 
-# 매일 실행 기준으로 스냅샷 59개(약 2년치)가 상시 보존됩니다.
+# snapshot 모드 전용. mirror 모드는 아무것도 지우지 않으므로 무시됩니다.
 retention:
   keep_last: 14
   keep_daily: 30
