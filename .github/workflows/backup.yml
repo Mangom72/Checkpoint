@@ -83,6 +83,13 @@ jobs:
           print(yaml.safe_dump({"output": output}, allow_unicode=True, sort_keys=False))
           PY
 
+      - name: Report runner capacity (before)
+        run: |
+          echo "== CPU / RAM =="
+          nproc; free -h | head -2
+          echo "== 디스크 (문서상 14GB 지만 실제 여유는 이미지마다 다릅니다) =="
+          df -h
+
       - name: Check credentials and target repositories
         env:
           GITHUB_TOKEN: ${{ secrets.BACKUP_GITHUB_TOKEN }}
@@ -100,6 +107,11 @@ jobs:
           if [ -n "${{ inputs.repo }}" ]; then args+=(--repo "${{ inputs.repo }}"); fi
           python -m checkpoint --config config.yaml run ${args[@]+"${args[@]}"}
 
-      - name: Report free space
+      - name: Report free space (after)
         if: always()
-        run: df -h / | tail -1
+        run: |
+          echo "== 백업 후 디스크 =="
+          df -h
+          echo
+          echo "위 '사용률' 이 여유롭다면 config.yaml 의 runtime.concurrency 를 올려도 됩니다."
+          echo "반대로 빠듯하면 concurrency 를 낮추거나 collect.git_pull_refs 를 끄세요."
