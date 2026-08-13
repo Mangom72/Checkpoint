@@ -318,6 +318,45 @@ class BackupRunner:
         return manifest
 
     # -- retention ------------------------------------------------------
+    def _read_manifest(self, snapshot: str) -> dict[str, Any] | None:
+        local = self.output_dir / snapshot / "manifest.json"
+        if local.is_file():
+            return read_json(local)
+        if self.backend.name == "none":
+            return None
+        tmp = self.work_root / "manifests" / f"{safe_name(snapshot)}.json"
+        if self.backend.download(f"{snapshot}/manifest.json", tmp):
+            return read_json(tmp)
+        return None
+
+    def _referenced_snapshots(self, survivors: list[str]) -> set[str]:
+        """Older snapshots that surviving incremental snapshots still depend on.
+
+        With ``runtime.incremental`` an unchanged repository is recorded as a
+        pointer to the snapshot that actually holds it. Deleting that snapshot
+        on age alone would silently orphan the data, so those targets are
+        protected from pruning.
+        """
+        if not self.cfg.get("runtime.incremental", False):
+            return set()
+
+        referenced: set[str] = set()
+        pending, seen = list(survivors), set()
+        while pending:
+            name = pending.pop()
+            if name in seen:
+                continue
+            seen.add(name)
+            manifest = self._read_manifest(name)
+            if not manifest:
+                continue
+            for entry in manifest.get("repos") or []:
+                target = entry.get("in_snapshot")
+                if target and target not in referenced:
+                    referenced.add(target)
+                    pending.append(target)  # 참조가 이어질 경우까지 따라갑니다
+        return referenced
+
     def prune(self, current: str) -> None:
         rules = {
             "keep_last": int(self.cfg.get("retention.keep_last", 0) or 0),
@@ -330,8 +369,13 @@ class BackupRunner:
 
         if self.cfg.get("retention.prune_remote", True) and self.backend.name != "none":
             names = self.backend.list_snapshots("")
-            for name in select_expired(names, self.snapshot_fmt, **rules):
+            expired = select_expired(names, self.snapshot_fmt, **rules)
+            protected = self._referenced_snapshots([n for n in names if n not in expired])
+            for name in expired:
                 if name == current:
+                    continue
+                if name in protected:
+                    log.info("keeping remote snapshot %s: still referenced by a later one", name)
                     continue
                 log.info("pruning remote snapshot %s", name)
                 if not self.dry_run:
@@ -339,7 +383,12 @@ class BackupRunner:
 
         if self.cfg.get("retention.prune_local", True) and self.output_dir.is_dir():
             names = [p.name for p in self.output_dir.iterdir()]
-            for name in select_expired(names, self.snapshot_fmt, **rules):
+            expired = select_expired(names, self.snapshot_fmt, **rules)
+            protected = self._referenced_snapshots([n for n in names if n not in expired])
+            for name in expired:
+                if name in protected:
+                    log.info("keeping local snapshot %s: still referenced by a later one", name)
+                    continue
                 if name == current:
                     continue
                 log.info("pruning local snapshot %s", name)
