@@ -189,6 +189,7 @@ def test_archive_contains_git_history_and_api_data(snapshot, tmp_path):
         assert (repo_dir / "api" / f"{name}.json").is_file(), f"missing {name}.json"
 
     assert (repo_dir / "git" / "repo.bundle").is_file()
+    assert manifest["repos"][0]["git"]["verified"] is True, "번들 검증이 수행되지 않음"
     refs = (repo_dir / "git" / "refs.txt").read_text()
     assert "refs/heads/main" in refs and "refs/tags/v1.0.0" in refs
 

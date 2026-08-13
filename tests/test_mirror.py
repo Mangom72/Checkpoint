@@ -186,3 +186,23 @@ def test_mirror_with_incremental_skips_unchanged_without_pointers(env):
     # 미러에는 사본이 그대로 있으므로 이전 스냅샷을 가리킬 필요가 없습니다.
     assert "in_snapshot" not in entry
     assert (tmp_path / "remote" / "mirror" / "repos" / "me__app" / "git" / "repo.bundle").is_file()
+
+
+def test_mirror_records_checksums_for_every_uploaded_file(env):
+    """로컬 사본을 지워도 SHA256SUMS 는 완전해야 합니다."""
+    tmp_path, _routes, server, _bare = env
+    manifest = BackupRunner(configure(tmp_path, server)).run()
+
+    remote = tmp_path / "remote" / "mirror"
+    sums = dict(
+        reversed(line.split("  ", 1))
+        for line in (remote / "SHA256SUMS").read_text().splitlines()
+        if line
+    )
+    assert "repos/me__app/git/repo.bundle" in sums
+    assert manifest["files"] == len(sums) and manifest["bytes"] > 0
+
+    from checkpoint.util import sha256_file
+
+    for relative, expected in sums.items():
+        assert sha256_file(remote / relative) == expected, relative

@@ -118,8 +118,10 @@ class BackupRunner:
         if self.mirror:
             # 미러는 파일 단위로 덮어써야 하므로 압축하지 않고 그대로 올립니다.
             # rclone copy 는 원격에서 아무것도 지우지 않습니다.
-            self.backend.upload(repo_dir, f"{MIRROR_ROOT}/repos/{slug}")
             result["bytes"] = dir_size(repo_dir)
+            # 로컬 사본을 지우기 전에 체크섬을 기록해 둡니다.
+            self._record_checksums(repo_dir, f"repos/{slug}")
+            self.backend.upload(repo_dir, f"{MIRROR_ROOT}/repos/{slug}")
             if not self.cfg.get("output.keep_local", True):
                 rmtree(repo_dir)
         elif self.cfg.get("output.archive", True):
@@ -235,6 +237,16 @@ class BackupRunner:
                 "could not be fetched to preserve it"
             )
 
+    def _record_checksums(self, directory: Path, prefix: str) -> None:
+        """Hash every file under ``directory`` so SHA256SUMS survives deletion."""
+        entries: dict[str, tuple[str, int]] = {}
+        for path in sorted(directory.rglob("*")):
+            if path.is_file():
+                relative = f"{prefix}/{path.relative_to(directory)}"
+                entries[relative] = (sha256_file(path), path.stat().st_size)
+        with self._uploaded_lock:
+            self._uploaded.update(entries)
+
     def _stream(self, path: Path, snapshot_dir: Path, snapshot_name: str, relative: str) -> None:
         """Upload one finished file, record its checksum, then free the local copy."""
         digest = sha256_file(path)
@@ -342,6 +354,7 @@ class BackupRunner:
             try:
                 account = export_account(self.client, snapshot_dir / "account", self.cfg)
                 if self.mirror:
+                    self._record_checksums(snapshot_dir / "account", "account")
                     self.backend.upload(snapshot_dir / "account", f"{MIRROR_ROOT}/account")
                 elif self.cfg.get("output.archive", True):
                     account_archive = archive_dir(
@@ -433,8 +446,8 @@ class BackupRunner:
         manifest["remote"] = remote_uri
         manifest["seconds"] = round(time.time() - started, 1)
         log.info(
-            "snapshot %s complete: %d repos, %d failed, %s in %.0fs",
-            snapshot_name,
+            "%s complete: %d repos, %d failed, %s in %.0fs",
+            "mirror" if self.mirror else f"snapshot {snapshot_name}",
             len(results),
             len(failures),
             manifest.get("size_human"),

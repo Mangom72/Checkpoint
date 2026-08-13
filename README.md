@@ -27,17 +27,38 @@ GitHub API + git clone --mirror
 
 ## 무엇을 백업하나
 
-| 분류 | 내용 |
+기본값은 **레포가 삭제되거나 계정이 정지돼도 코드를 되살리는 것** 에 맞춰져 있습니다.
+다시 만들 수 없는 것만 가져오고, 나머지는 꺼져 있습니다.
+
+**기본으로 켜짐**
+
+| 항목 | 내용 |
 | --- | --- |
-| **Git** | 전체 히스토리를 `repo.bundle` 하나로 (모든 브랜치·태그·노트). 선택적으로 `refs/pull/*`, LFS 객체 |
-| **위키** | `wiki.bundle` |
-| **이슈** | 본문 + 코멘트 + 이벤트(라벨/할당/클로즈 이력) |
-| **PR** | 본문 + 코멘트 + 리뷰 + 리뷰 코멘트 + 커밋 목록 + 머지 상태 |
-| **릴리스** | 릴리스 노트 + 첨부파일 바이너리 |
-| **Discussions** | 글 + 답글 + 채택 답변 |
-| **메타데이터** | 라벨, 마일스톤, 태그, 브랜치, 기여자, 콜라보레이터, 언어, 토픽, README, 워크플로 정의 |
-| **계정** | 프로필, gist(본문 포함), 스타, 팔로잉/팔로워, 조직, 공개키 |
-| **선택** | stargazers, forks, 웹훅, 워크플로 실행 이력, 배포, Projects v2, 트래픽 통계 |
+| `git` | 전체 히스토리를 `repo.bundle` 하나로 (모든 브랜치·태그·노트). 만든 직후 `git bundle verify` 로 검증합니다 |
+| `wiki` | 위키도 별도 git 저장소라 레포와 함께 사라집니다 |
+| `repo_meta` | 설명·기본 브랜치·언어·토픽·README (레포를 다시 만들 때 필요) |
+| `releases` + `release_assets` | 릴리스 노트와 첨부 바이너리 — 소스에서 다시 만들 수 없는 산출물 |
+
+**끄져 있음 — `config.yaml` 에서 한 줄만 `true` 로 바꾸면 켜집니다**
+
+| 항목 | 켜면 얻는 것 | 비용 |
+| --- | --- | --- |
+| `issues`, `issue_comments`, `issue_events` | 이슈 본문·코멘트·라벨/클로즈 이력 | API 호출 증가 |
+| `pulls`, `pull_reviews`, `pull_review_comments`, `pull_commits` | PR 대화와 리뷰 전체 | **PR 1건당 API 2회** — 백업 시간이 가장 많이 늘어납니다 |
+| `discussions` | Discussions 글·답글 | GraphQL 호출 |
+| `labels`, `milestones`, `tags`, `branches`, `contributors`, `collaborators`, `commit_comments`, `workflows` | 레포 부가 정보 | 항목당 API 1~2회 (가벼움) |
+| `account_gists` | gist 본문까지 | gist 개수만큼 호출 |
+| `account_profile`, `account_starred`, `account_following` | 프로필·스타·팔로잉 | 가벼움 |
+| `git_pull_refs` | 삭제된 PR 브랜치와 force-push 이전 이력 | 용량 증가 |
+| `git_lfs` | LFS 객체 | 용량 증가 |
+| `stargazers`, `watchers`, `forks` | 누가 스타/포크했는지 | 수만큼 호출 |
+| `webhooks` | 웹훅 설정 | admin 권한 필요 |
+| `workflow_runs`, `deployments`, `environments` | CI·배포 이력 | 많을 수 있음 |
+| `projects_v2` | 프로젝트 보드 | 토큰에 `read:project` 필요 |
+| `traffic` | 조회수·클론 통계 | push 권한 필요, GitHub 는 14일치만 제공 |
+
+> **이슈·PR 은 기본으로 꺼져 있습니다.** 레포가 삭제되면 대화 기록도 함께 사라지고
+> 복구할 방법이 없으니, 코드 외에 이력도 지키고 싶다면 위 네 줄을 켜세요.
 
 ## 두 가지 모드
 

@@ -132,6 +132,22 @@ def export_git(
             return summary
         raise
 
+    # 만든 직후 검증합니다. 코드가 유일본일 때 "올렸는데 못 여는 번들" 이 최악입니다.
+    check = run(
+        ["git", "bundle", "verify", str(bundle)],
+        cwd=mirror,
+        env=env,
+        check=False,
+        timeout=timeout,
+        secrets=[token],
+    )
+    if check.returncode != 0:
+        raise CommandError(
+            ["git", "bundle", "verify", bundle.name],
+            check.returncode,
+            (check.stdout or "") + (check.stderr or ""),
+        )
+    summary["verified"] = True
     summary["bundle"] = bundle.name
     summary["bundle_bytes"] = bundle.stat().st_size
     log.info("git bundle %s (%s refs)", human_size(summary["bundle_bytes"]), len(refs))
