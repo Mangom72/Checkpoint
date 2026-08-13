@@ -293,3 +293,45 @@ def test_streamed_and_normal_snapshots_have_identical_layout(tmp_path, monkeypat
         if p.is_file()
     )
     assert streamed_files == normal
+
+
+def test_redaction_keeps_repo_names_out_of_logs(tmp_path, monkeypatch):
+    """public 레포에서 실행 로그가 공개돼도 레포 이름이 드러나지 않아야 합니다."""
+    import io
+    import logging
+
+    stream = io.StringIO()
+    handler = logging.StreamHandler(stream)
+    handler.setLevel(logging.DEBUG)
+    root = logging.getLogger()
+    previous, previous_level = root.handlers[:], root.level
+    root.handlers[:] = [handler]
+    root.setLevel(logging.DEBUG)
+    try:
+        bare = make_bare_repo(tmp_path)
+        routes = routes_for("me/app", str(bare), {})
+        with FakeGitHub(routes, page_size=50) as server:
+            routes["/repos/me/app/releases"][0]["assets"][0]["url"] = f"{server.url}/asset/1"
+            monkeypatch.setenv("GITHUB_TOKEN", "t0ken")
+            cfg = _configure(tmp_path, server, stream_upload=True)
+            cfg.data["runtime"]["redact_repo_names"] = True
+            cfg.data["runtime"]["log_level"] = "DEBUG"
+            manifest = BackupRunner(cfg).run()
+    finally:
+        root.handlers[:] = previous
+        root.setLevel(previous_level)
+
+    logged = stream.getvalue()
+    assert logged.strip(), "로그가 비어 있으면 검증이 의미 없습니다"
+    assert "me/app" not in logged
+    assert "me__app" not in logged, "아카이브 슬러그도 가려져야 합니다"
+    assert "repo#01" in logged, "별칭으로 대체되어 진행 상황은 계속 보여야 합니다"
+
+    # 실제 이름은 manifest 에만 남고, 대응표로 로그를 되짚을 수 있어야 합니다.
+    assert manifest["repos"][0]["repo"] == "me/app"
+    assert manifest["log_aliases"] == {"me/app": "repo#01"}
+
+
+def test_redaction_is_off_by_default(snapshot):
+    _root, manifest, _cfg = snapshot
+    assert manifest["log_aliases"] is None

@@ -110,6 +110,8 @@ runtime:
   incremental: false      # true 로 두면 안 바뀐 레포는 건너뜀 (아래 주의사항 참고)
   state_file: .checkpoint-state.json
   log_level: INFO
+  redact_repo_names: false  # true 면 로그의 레포 이름을 repo#01 로 치환합니다.
+                            # public 레포에서 자동 실행할 때 권장 (Actions 로그가 공개됨)
   fail_fast: false
 
 # 주의: incremental: true 는 마지막 백업 이후 push/update 가 없는 레포를 건너뜁니다.

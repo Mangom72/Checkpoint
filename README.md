@@ -90,9 +90,19 @@ Actions 사용량이 무료라는 장점이 있지만, **실행 로그도 공개
 (`[3/20] mangom72/private-thing done in 12s`) **비공개 레포의 존재와 이름이 노출됩니다.**
 백업 내용 자체는 Drive 로만 가고 로그에 남지 않으며, 시크릿은 GitHub 가 자동으로 마스킹합니다.
 
-- 비공개 레포가 하나라도 있다면 → 이 레포도 **private 으로 두세요.** 대신 Actions 분을 씁니다(아래).
-- 그래도 public 으로 두겠다면 → `config.yaml` 에 `runtime: { log_level: WARNING }` 을 넣어
-  레포별 진행 로그를 끄세요. 다만 오류 메시지에는 여전히 이름이 남을 수 있습니다.
+해결책은 `runtime.redact_repo_names: true` 입니다. 켜면 모든 로그에서 레포 이름이
+`repo#01` 형태의 별칭으로 바뀝니다. `owner/name` 뿐 아니라 아카이브 슬러그(`owner__name`)와
+rclone 이 찍는 원격 경로, 오류 메시지 안의 이름까지 전부 걸러집니다.
+진행 상황은 별칭으로 그대로 보이고, 실제 이름은 `manifest.json` 의 `log_aliases` 대응표에
+남으므로 나중에 되짚을 수 있습니다 (manifest 는 Drive 로만 가고 로그에는 찍히지 않습니다).
+
+```
+[3/20] repo#07 done in 12s (4.1 MiB)      # 켠 뒤
+[3/20] mangom72/private-thing done in 12s # 끈 상태
+```
+
+- **public + `redact_repo_names: true`** → Actions 분 소모 0, 이름도 새지 않음. 대부분 이쪽이 낫습니다.
+- **private** → 로그 자체가 비공개지만 무료 분을 씁니다(아래).
 
 #### Actions 분 예산 (private 으로 둘 때만 해당)
 

@@ -15,6 +15,7 @@ from .discovery import discover_repos
 from .exporters import RepoApiExporter, export_account, export_git, export_wiki
 from .github_client import GitHubClient
 from .packager import archive_dir, write_manifest
+from .redaction import RepoNameRedactor
 from .retention import select_expired
 from .storage import build_backend
 from .util import human_size, read_json, rmtree, safe_name, sha256_file, utc_stamp, write_json
@@ -46,6 +47,10 @@ class BackupRunner:
         self.stream_upload = bool(cfg.get("output.stream_upload", False)) and self.backend.name != "none"
         self._uploaded: dict[str, tuple[str, int]] = {}
         self._uploaded_lock = threading.Lock()
+        self.redactor = RepoNameRedactor(bool(cfg.get("runtime.redact_repo_names", False)))
+        if self.redactor.enabled:
+            for handler in logging.getLogger().handlers:
+                handler.addFilter(self.redactor)
 
     # -- state ----------------------------------------------------------
     def load_state(self) -> dict[str, Any]:
@@ -162,6 +167,9 @@ class BackupRunner:
             log.warning(message)
             run_warnings.append(message)
 
+        # 이름을 가릴 거라면 로그가 나가기 전에 등록해야 합니다.
+        self.redactor.register([repo["full_name"] for repo in repos])
+
         snapshot_name = utc_stamp(self.snapshot_fmt)
         snapshot_dir = self.output_dir / snapshot_name
         snapshot_dir.mkdir(parents=True, exist_ok=True)
@@ -256,6 +264,9 @@ class BackupRunner:
             "failed": len(failures),
             "warnings": run_warnings,
             "account": account,
+            # 로그에서 가린 이름을 나중에 되짚을 수 있도록 대응표를 남깁니다.
+            # manifest 는 Drive 로만 가고 로그에는 찍히지 않습니다.
+            "log_aliases": self.redactor.aliases or None,
             "repos": sorted(results, key=lambda r: r["repo"].lower()),
         }
         write_manifest(snapshot_dir, manifest, uploaded=self._uploaded)

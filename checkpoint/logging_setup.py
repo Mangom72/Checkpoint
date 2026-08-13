@@ -26,9 +26,11 @@ class _Formatter(logging.Formatter):
         return text
 
 
-def setup_logging(level: str = "INFO") -> None:
+def setup_logging(level: str = "INFO", log_filter: logging.Filter | None = None) -> None:
     handler = logging.StreamHandler(sys.stderr)
     handler.setFormatter(_Formatter(color=sys.stderr.isatty()))
+    if log_filter is not None:
+        handler.addFilter(log_filter)
     root = logging.getLogger()
     root.handlers[:] = [handler]
     root.setLevel(getattr(logging, str(level).upper(), logging.INFO))

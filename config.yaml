@@ -100,4 +100,8 @@ runtime:
   incremental: false        # 스냅샷 하나만으로 완전 복원되도록 유지
   state_file: .checkpoint-state.json
   log_level: INFO
+  redact_repo_names: true   # 실행 로그에서 레포 이름을 repo#01 형태로 가립니다.
+                            # 이 레포를 public 으로 두면 Actions 로그가 공개되므로,
+                            # 비공개 레포 이름이 새지 않게 하는 장치입니다.
+                            # 실제 이름은 manifest.json 의 log_aliases 로 되짚을 수 있습니다.
   fail_fast: false

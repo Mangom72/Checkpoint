@@ -104,6 +104,7 @@ DEFAULTS: dict[str, Any] = {
         "incremental": False,
         "state_file": ".checkpoint-state.json",
         "log_level": "INFO",
+        "redact_repo_names": False,
         "fail_fast": False,
     },
 }
