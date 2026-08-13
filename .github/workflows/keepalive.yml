@@ -1,0 +1,71 @@
+name: Keep scheduled workflows alive
+
+# public 레포에서 60일간 아무 활동이 없으면 GitHub 가 스케줄 워크플로를 자동으로
+# 비활성화합니다. 백업 실행 자체는 "활동"으로 치지 않으므로, 조용한 기간이
+# 50일을 넘기면 여기서 커밋 하나를 만들어 시계를 되돌립니다.
+#
+# 매주 확인하지만 실제 커밋은 50일 이상 조용했을 때만 발생합니다.
+# 평소에 커밋을 하는 레포라면 이 워크플로는 아무 일도 하지 않습니다.
+
+on:
+  schedule:
+    - cron: "0 5 * * 1"   # 매주 월요일 05:00 UTC (한국시간 14:00)
+  workflow_dispatch:
+    inputs:
+      force:
+        description: "경과 일수와 무관하게 지금 커밋"
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+concurrency:
+  group: checkpoint-keepalive
+  cancel-in-progress: false
+
+jobs:
+  keepalive:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Commit only if the repository has been quiet
+        env:
+          THRESHOLD_DAYS: "50"
+          FORCE: ${{ inputs.force }}
+        run: |
+          set -euo pipefail
+
+          last=$(git log -1 --format=%ct)
+          now=$(date +%s)
+          age=$(( (now - last) / 86400 ))
+          echo "마지막 커밋: ${age}일 전 (기준: ${THRESHOLD_DAYS}일, 자동 비활성화: 60일)"
+
+          if [ "${FORCE}" != "true" ] && [ "${age}" -lt "${THRESHOLD_DAYS}" ]; then
+            echo "여유 있음 - 커밋하지 않습니다."
+            exit 0
+          fi
+
+          date -u +"%Y-%m-%dT%H:%M:%SZ" > .github/last-activity
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add .github/last-activity
+
+          if git diff --cached --quiet; then
+            echo "변경 없음 - 커밋 생략"
+            exit 0
+          fi
+
+          git commit -m "chore: keepalive commit to keep scheduled backups enabled"
+          # GITHUB_TOKEN 으로 만든 푸시는 다른 워크플로를 다시 트리거하지 않으므로
+          # 루프가 생기지 않습니다. HEAD:<branch> 형태로 detached HEAD 도 처리합니다.
+          git push origin "HEAD:${GITHUB_REF_NAME}"
+          echo "커밋 완료 - 60일 시계가 초기화됐습니다."
+
+      - name: Warn if the backup schedule looks disabled
+        if: always()
+        run: |
+          echo "확인: Actions 탭에서 'Backup GitHub -> Google Drive' 가 비활성화 표시되어 있지 않은지 보세요."

@@ -83,6 +83,26 @@ Actions 탭에서 **Run workflow** 로 수동 실행도 되고, `dry_run` / `ful
 > 무료 러너 디스크는 약 14GB 입니다. 레포 총량이 그보다 크면 `--repo` 로 나눠 돌리거나
 > `runtime.incremental: true` 또는 self-hosted 러너를 쓰세요.
 
+#### 이 레포를 public 으로 둘 때
+
+Actions 사용량이 무료라는 장점이 있지만, **실행 로그도 공개됩니다.**
+백업 진행 로그에는 대상 레포 이름이 한 줄씩 찍히므로
+(`[3/20] mangom72/private-thing done in 12s`) **비공개 레포의 존재와 이름이 노출됩니다.**
+백업 내용 자체는 Drive 로만 가고 로그에 남지 않으며, 시크릿은 GitHub 가 자동으로 마스킹합니다.
+
+- 비공개 레포가 하나라도 있다면 → 이 레포도 **private 으로 두세요.**
+  private 레포의 Actions 는 무료 2,000분/월이며, 하루 한 번 백업은 보통 그 안에 들어옵니다.
+- 그래도 public 으로 두겠다면 → `config.yaml` 에 `runtime: { log_level: WARNING }` 을 넣어
+  레포별 진행 로그를 끄세요. 다만 오류 메시지에는 여전히 이름이 남을 수 있습니다.
+
+#### 스케줄 자동 비활성화 방지
+
+public 레포는 **60일간 활동이 없으면 GitHub 가 스케줄 워크플로를 자동으로 끕니다.**
+백업 실행은 활동으로 치지 않습니다.
+[`.github/workflows/keepalive.yml`](.github/workflows/keepalive.yml) 이 매주 확인해서
+50일 이상 조용했을 때만 커밋 하나를 남겨 시계를 되돌립니다. 평소에는 아무 일도 하지 않습니다.
+default branch 에 브랜치 보호 규칙이 걸려 있으면 `github-actions[bot]` 의 푸시를 허용해야 합니다.
+
 ### 방법 B. 서버 / 개인 PC 의 cron
 
 ```cron
@@ -116,6 +136,39 @@ WantedBy=timers.target
 | `checkpoint list` | 백업 대상 레포 목록 (private/fork/archived 표시) |
 | `checkpoint prune` | 보존 규칙만 적용해 오래된 스냅샷 정리 (`--dry-run`) |
 | `checkpoint restore <archive> <dir>` | 스냅샷 아카이브를 풀고 번들에서 작업 클론 생성 |
+
+## Drive 용량 계산
+
+Google 계정의 무료 15GB 는 Gmail·Drive·Photos 가 함께 씁니다.
+Checkpoint 가 쓰는 양은 **스냅샷 1개 크기 × 보존되는 스냅샷 수** 입니다
+(증분이 꺼져 있으면 스냅샷 하나하나가 전체 사본입니다).
+
+기본 설정(매일 실행 + `keep_last 7 / daily 7 / weekly 4 / monthly 6`)의 정상 상태는
+**스냅샷 13개** 입니다. 주 1회 + `keep_last 4 / weekly 4 / monthly 6` 이면 **8개** 입니다.
+
+| 레포 총합 (압축 후) | 기본 설정 (13개) | 주 1회 설정 (8개) |
+| --- | --- | --- |
+| 100MB | 1.3GB | 0.8GB |
+| 500MB | 6.5GB | 4GB |
+| 1GB | 13GB | 8GB |
+| 3GB | 39GB ← 무료 15GB 초과 | 24GB |
+
+내 총량을 미리 재려면:
+
+```bash
+python -m checkpoint list                  # 레포별 크기와 합계
+```
+
+한 번 돌린 뒤 실측하려면:
+
+```bash
+jq -r '.size_human' backups/*/manifest.json    # 스냅샷 1개 실제 크기
+rclone size gdrive:Checkpoint/github-backups   # Drive 에서 실제 사용 중인 양
+```
+
+현재 Drive 사용량은 <https://drive.google.com/settings/storage> 에서 확인합니다.
+용량이 빠듯하면 순서대로: cron 을 주 1회로 → `keep_daily: 0` → `keep_monthly` 축소 →
+`runtime.incremental: true`.
 
 `python -m checkpoint ...` 로도 동일하게 실행됩니다.
 
