@@ -78,6 +78,18 @@ def test_mirror_writes_one_copy_with_no_timestamped_dirs(env):
     assert (remote / "mirror" / "manifest.json").is_file()
 
 
+def test_mirror_creates_git_bundle_with_a_relative_output_directory(env, monkeypatch):
+    tmp_path, _routes, server, _bare = env
+    monkeypatch.chdir(tmp_path)
+    cfg = configure(tmp_path, server)
+    cfg.data["output"]["dir"] = "local"
+    cfg.data["output"]["work_dir"] = "work"
+
+    BackupRunner(cfg).run()
+
+    assert (tmp_path / "remote" / "mirror" / "repos" / "me__app" / "git" / "repo.bundle").is_file()
+
+
 def test_repeat_runs_do_not_multiply_storage(env):
     tmp_path, _routes, server, _bare = env
     BackupRunner(configure(tmp_path, server)).run()
