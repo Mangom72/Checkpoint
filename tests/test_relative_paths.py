@@ -17,6 +17,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from checkpoint.backup import BackupRunner
 from checkpoint.config import Config
+from checkpoint.exporters.git_repo import export_wiki
 from tests.fake_github import FakeGitHub, make_repo
 from tests.test_integration import make_bare_repo
 
@@ -74,3 +75,22 @@ def test_output_dir_is_resolved_regardless_of_later_chdir(cwd_elsewhere, monkeyp
     assert runner.output_dir == (cwd_elsewhere / "backups").resolve()
     assert runner.output_dir.is_absolute()
     assert runner.work_root.is_absolute()
+
+
+def test_relative_dest_does_not_break_wiki_bundle(cwd_elsewhere):
+    """export_git 의 repo.bundle 과 같은 버그가 export_wiki 의 wiki.bundle 에도
+    있었다. dest/work_dir 을 상대 경로로 주고, 실행 중 cwd 가 그 기준과
+    달라지는 상황(다른 레포를 처리하며 os.chdir 하는 등)을 흉내내지 않아도
+    이미 dest 자체가 상대 경로면 mirror cwd 기준으로 재해석되어 실패한다.
+    """
+    wiki_src = make_bare_repo(cwd_elsewhere.parent)  # 아무 git 저장소나 위키처럼 사용
+
+    result = export_wiki(
+        wiki_url=str(wiki_src),
+        dest=Path("relative-dest/git"),   # config.yaml 과 동일하게 상대 경로
+        token="t0ken",
+        work_dir=Path("relative-work"),
+    )
+
+    assert result is not None, "위키 번들 생성이 실패함"
+    assert (cwd_elsewhere / "relative-dest" / "git" / "wiki.bundle").is_file()

@@ -199,7 +199,8 @@ def export_wiki(
         return None
 
     dest.mkdir(parents=True, exist_ok=True)
-    bundle = dest / "wiki.bundle"
+    # 여기도 mirror 디렉터리에서 실행되므로 절대 경로로 고정합니다 (repo.bundle 과 동일한 이유).
+    bundle = (dest / "wiki.bundle").resolve()
     result = run(
         ["git", "bundle", "create", str(bundle), "--all"],
         cwd=mirror,
