@@ -115,7 +115,8 @@ def export_git(
         elif proc.returncode != 0:
             log.warning("git lfs fetch failed (is git-lfs installed?)")
 
-    bundle = dest / "repo.bundle"
+    # git 명령은 mirror 디렉터리에서 실행되므로 출력 경로를 절대 경로로 고정합니다.
+    bundle = (dest / "repo.bundle").resolve()
     try:
         run(
             ["git", "bundle", "create", str(bundle), "--all"],
