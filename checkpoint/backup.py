@@ -50,8 +50,11 @@ class BackupRunner:
             max_retries=int(cfg.get("runtime.max_retries", 6)),
         )
         self.backend = build_backend(cfg)
-        self.output_dir = Path(cfg.get("output.dir", "./backups")).expanduser()
-        self.work_root = Path(cfg.get("output.work_dir", "./work")).expanduser()
+        # 절대 경로로 고정합니다. git 하위 명령은 미러 클론 디렉터리를 cwd 로 두고
+        # 실행되는데, 여기 경로가 상대 경로면 그 cwd 기준으로 다시 해석되어
+        # (예: <mirror>/backups/mirror/...) 존재하지 않는 경로가 만들어집니다.
+        self.output_dir = Path(cfg.get("output.dir", "./backups")).expanduser().resolve()
+        self.work_root = Path(cfg.get("output.work_dir", "./work")).expanduser().resolve()
         self.state_path = Path(cfg.get("runtime.state_file", ".checkpoint-state.json")).expanduser()
         self.snapshot_fmt = cfg.get("output.snapshot_name", "%Y-%m-%dT%H-%M-%SZ")
         self.mirror = cfg.get("output.mode", "snapshot") == "mirror"

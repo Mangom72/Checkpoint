@@ -387,6 +387,14 @@ systemd timer 를 쓴다면 `OnCalendar=*-*-* 03:00:00` 에 `Persistent=true` �
 - `redact_repo_names` 는 로그에만 적용됩니다. `--json` 으로 manifest 를 출력하면
   실제 이름이 그대로 나옵니다.
 
+## 알려진 이슈 이력
+
+- **v1.0 ~ 첫 실사용 실행**: `output.dir`/`output.work_dir` 가 기본값(`./backups`,
+  `./work`)처럼 상대 경로면 `git bundle create` 가 128 로 실패했습니다. git 하위
+  명령이 미러 클론 디렉터리를 cwd 로 두고 실행되는데, 상대 경로가 그 cwd 기준으로
+  다시 해석돼 존재하지 않는 중첩 경로가 만들어졌기 때문입니다. `BackupRunner` 생성
+  시점에 두 경로를 절대 경로로 고정해 해결했습니다. 설정을 바꿀 필요는 없습니다.
+
 ## 개발
 
 ```bash
